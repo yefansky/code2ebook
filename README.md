@@ -148,6 +148,9 @@ Options:
     -x
     --cross-reference     Turn on cross referencing links in the HTML output.
 
+    --encoding ENCODING   Specify the input encoding for the file patterns.
+                          Default to UTF-8. Use 'gbk' for GBK encoding, etc.
+
 Copyright (C) Yichun Zhang (agentzh) <agentzh@gmail.com>.
 ```
 

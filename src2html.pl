@@ -10,6 +10,7 @@ use Getopt::Long qw( GetOptions :config no_ignore_case);
 #use Data::Dumper;
 use File::Spec ();
 use File::Path qw( make_path );
+use IPC::Open2;
 
 sub usage ($);
 sub process_dir ($$);
@@ -32,6 +33,7 @@ sub canon_file_name ($);
 sub assemble_wildcard_regex ($);
 sub create_dir ($);
 sub gen_nav ($$);
+sub convert_encoding ($$$);
 
 my $charset = 'UTF-8';
 
@@ -51,6 +53,8 @@ my $jobs = 1;
 
 my $parallel_manager;
 
+my $encoding = 'utf8';  # 默认值为 utf8
+
 GetOptions("charset=s",         \$charset,
            "c|color",           \(my $use_colors),
            "e|exclude=s@",      \(my $exclude_files),
@@ -63,7 +67,8 @@ GetOptions("charset=s",         \$charset,
            "t|tab-width=i",     \($tab_width),
            "j|jobs=i",          \($jobs),
            "x|cross-reference", \(my $use_cross_ref),
-           "css=s",             \(my $cssfile))
+           "css=s",             \(my $cssfile),
+           "encoding=s",        \$encoding)   # 新增的 encoding 参数
    or usage(1);
 
 if ($help) {
@@ -895,15 +900,40 @@ sub assemble_wildcard_regex ($) {
 
     my @new = @$list;
     for (@new) {
+        # Escape special regex characters
         s#([\|+^\${}()\\])#\\$1#g;
+        # Replace '.' with literal dot and '*' with non-greedy wildcard
         s/\./\\./g;
         s/\*/.*?/g;
     }
 
     my $s = "^(?:" . join('|', @new) . ')$';
-    #warn "regex: $s\n";
-    return qr/$s/;
+    my $regex = qr/$s/;
+
+    # 如果提供了 encoding 参数，并且不是 utf8，则执行转码
+    if ($encoding && $encoding ne 'utf8') {
+        $regex = convert_encoding($regex, $encoding, 'utf8');
+    }
+
+    return $regex;
 }
+
+sub convert_encoding ($$$) {
+    my ($text, $from_enc, $to_enc) = @_;
+
+    # 创建管道，用于执行 iconv 命令
+    my $pid = open2(*READER, *WRITER, "iconv -f $from_enc -t $to_enc");
+    print WRITER $text;
+    close WRITER;
+
+    # 读取 iconv 转换后的输出
+    my $converted_text = do { local $/; <READER> };
+    close READER;
+    waitpid($pid, 0);  # 等待进程结束
+
+    return $converted_text;
+}
+
 
 sub usage ($) {
     my $rc = shift;
@@ -962,8 +992,12 @@ Options:
     -x
     --cross-reference     Turn on cross referencing links in the HTML output.
 
+    --encoding ENCODING   Specify the input encoding for the file patterns.
+                          Default to UTF-8. Use 'gbk' for GBK encoding, etc.
+
 Copyright (C) Yichun Zhang (agentzh) <agentzh@gmail.com>.
 _EOC_
+
     if ($rc == 0) {
         print $msg;
         exit(0);
